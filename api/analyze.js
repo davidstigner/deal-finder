@@ -11,13 +11,17 @@ function median(values) {
 async function getEbayToken() {
   const id = process.env.EBAY_CLIENT_ID;
   const secret = process.env.EBAY_CLIENT_SECRET;
-  if (!id || !secret) throw new Error("eBay credentials are not configured on the server.");
+
+  if (!id || !secret) {
+    throw new Error("eBay credentials are not configured on the server.");
+  }
 
   const basic = Buffer.from(`${id}:${secret}`).toString("base64");
+
   const response = await fetch(`${EBAY_API}/identity/v1/oauth2/token`, {
     method: "POST",
     headers: {
-      "Authorization": `Basic ${basic}`,
+      Authorization: `Basic ${basic}`,
       "Content-Type": "application/x-www-form-urlencoded"
     },
     body: new URLSearchParams({
@@ -27,49 +31,97 @@ async function getEbayToken() {
   });
 
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error_description || "eBay authentication failed.");
+
+  if (!response.ok) {
+    throw new Error(
+      data.error_description || "eBay authentication failed."
+    );
+  }
+
   return data.access_token;
 }
 
 export default async function handler(request, response) {
   if (request.method !== "GET") {
-    return response.status(405).json({error: "Method not allowed"});
+    return response.status(405).json({
+      error: "Method not allowed"
+    });
   }
 
   const upc = String(request.query.upc || "").replace(/\D/g, "");
-  if (!upc) return response.status(400).json({error: "UPC is required"});
+
+  if (!upc) {
+    return response.status(400).json({
+      error: "UPC is required"
+    });
+  }
 
   try {
     const token = await getEbayToken();
-    const url = new URL(`${EBAY_API}/buy/browse/v1/item_summary/search`);
+
+    const url = new URL(
+      `${EBAY_API}/buy/browse/v1/item_summary/search`
+    );
+
     url.searchParams.set("gtin", upc);
     url.searchParams.set("limit", "50");
 
     const ebayResponse = await fetch(url, {
       headers: {
-        "Authorization": `Bearer ${token}`,
-        "Accept": "application/json",
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
         "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"
       }
     });
 
     const data = await ebayResponse.json();
+
     if (!ebayResponse.ok) {
-      const msg = data.errors?.[0]?.message || "eBay search failed.";
-      return response.status(502).json({error: msg});
+      const msg =
+        data.errors?.[0]?.message || "eBay search failed.";
+
+      return response.status(502).json({
+        error: msg
+      });
     }
 
-    const items = Array.isArray(data.itemSummaries) ? data.itemSummaries : [];
-    const prices = items
-      .map(item => Number(item.price?.value))
-      .filter(Number.isFinite)
-      .filter(p => p > 0);
+    const items = Array.isArray(data.itemSummaries)
+      ? data.itemSummaries
+      : [];
+
+    const comparableListings = items
+      .map(item => ({
+        title: item.title || "eBay listing",
+        price: Number(item.price?.value),
+        currency: item.price?.currency || "USD",
+        condition: item.condition || "",
+        imageUrl:
+          item.image?.imageUrl ||
+          item.thumbnailImages?.[0]?.imageUrl ||
+          "",
+        url: item.itemWebUrl || ""
+      }))
+      .filter(
+        item =>
+          Number.isFinite(item.price) &&
+          item.price > 0
+      )
+      .sort((a, b) => a.price - b.price);
+
+    const prices = comparableListings.map(
+      item => item.price
+    );
 
     const referencePrice = median(prices);
 
     const first = items[0] || {};
-    const title = first.title || `UPC ${upc}`;
-    const category = first.categories?.[0]?.categoryName || "Product";
+
+    const title =
+      first.title || `UPC ${upc}`;
+
+    const category =
+      first.categories?.[0]?.categoryName ||
+      "Product";
 
     return response.status(200).json({
       product: {
@@ -77,15 +129,28 @@ export default async function handler(request, response) {
         category,
         upc
       },
+
       market: {
         referencePrice,
-        sampleSize: prices.length,
-        note: prices.length
-          ? `Median of ${prices.length} current eBay listing prices. This is an active-listing reference, not sold-item data.`
-          : "No priced eBay listings were returned for this UPC."
+
+        sampleSize:
+          comparableListings.length,
+
+        note: comparableListings.length
+          ? `Median of ${comparableListings.length} current eBay listing prices. These active listings are the items shown below and are a reference, not sold-item data.`
+          : "No priced eBay listings were returned for this UPC.",
+
+        listings:
+          comparableListings
       }
     });
+
   } catch (error) {
-    return response.status(500).json({error: error.message || "Unexpected server error"});
+
+    return response.status(500).json({
+      error:
+        error.message ||
+        "Unexpected server error"
+    });
   }
 }
