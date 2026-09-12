@@ -26,7 +26,7 @@
   </div>
   <div class="manual">
     <input id="manualUpc" inputmode="numeric" placeholder="Or enter UPC manually">
-    <button id="lookupBtn" class="secondary">LOOK UP UPC</button>
+    <button id="lookupBtn" class="secondary">ANALYZE UPC</button>
   </div>
   <p id="scanStatus" class="muted"></p>
 </section>
@@ -35,9 +35,9 @@
   <div class="label">PRODUCT</div>
   <h2 id="productTitle"></h2>
   <p id="platform"></p>
-  <p class="muted">UPC: <span id="upc"></span></p>
+  <p class="muted">UPC/GTIN: <span id="upc"></span></p>
   <div class="priceRow">
-    <span>Market price</span>
+    <span>Market reference</span>
     <strong id="marketPrice">$0.00</strong>
   </div>
   <p id="marketNote" class="muted"></p>
@@ -85,8 +85,8 @@
 </section>
 
 <section class="card note">
-  <strong>Prototype 1.1</strong>
-  <p>UPC lookup now uses live product-data lookup during testing. Market-price data is still a placeholder until we connect the marketplace pricing layer. Never put a private API key in this public GitHub site.</p>
+  <strong>Deal Finder Backend V1</strong>
+  <p>The app now talks to our server. The server keeps marketplace credentials private and asks eBay for current listing data by UPC/GTIN. Active-listing pricing is a reference, not sold-item data.</p>
 </section>
 </main>
 <script src="app.js"></script>

@@ -8,7 +8,7 @@ const money = n => new Intl.NumberFormat("en-US", {style:"currency", currency:"U
 function setProduct(p, note="") {
   product = p;
   $("productTitle").textContent = p.title || "Unknown product";
-  $("platform").textContent = p.platform || "Platform not identified";
+  $("platform").textContent = p.platform || "Category not identified";
   $("upc").textContent = p.upc || "";
   $("marketPrice").textContent = money(p.marketPrice || 0);
   $("marketNote").textContent = note;
@@ -42,7 +42,7 @@ function calculate() {
   }
 
   const profit = net - cost;
-  const roi = cost ? (profit / cost) * 100 : 0;
+  const roi = (profit / cost) * 100;
   $("profit").textContent = money(profit);
   $("roi").textContent = `${roi.toFixed(0)}%`;
 
@@ -56,44 +56,25 @@ function calculate() {
   $("verdict").className = `verdict ${cls}`;
 }
 
-async function lookupUPC(upc) {
+async function analyzeUPC(upc) {
   upc = String(upc).replace(/\D/g, "");
   if (!upc) return;
-  $("scanStatus").textContent = "Looking up UPC…";
+  $("scanStatus").textContent = "Analyzing product…";
   try {
-    const url = `https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(upc)}`;
-    const response = await fetch(url, {headers: {"Accept":"application/json"}});
+    const response = await fetch(`/api/analyze?upc=${encodeURIComponent(upc)}`);
     const data = await response.json();
-    if (!response.ok || !data.items || !data.items.length) {
-      throw new Error(data.message || "UPC not found");
-    }
-
-    const item = data.items[0];
-    const title = item.title || "Unknown product";
-    const category = item.category || "";
-    const brand = item.brand || "";
-
-    // Prototype only: keep market price separate from product identity.
-    // We use the first usable non-eBay/non-Amazon offer as a temporary reference.
-    const offers = Array.isArray(item.offers) ? item.offers : [];
-    const usable = offers.filter(o => Number(o.price) > 0);
-    const prices = usable.map(o => Number(o.price)).filter(Number.isFinite);
-    const referencePrice = prices.length ? prices.sort((a,b)=>a-b)[Math.floor(prices.length/2)] : 0;
-
-    const note = referencePrice
-      ? `UPC identified live. Temporary reference price from available non-marketplace offers: ${money(referencePrice)}.`
-      : "UPC identified live. No usable reference offer returned.";
+    if (!response.ok) throw new Error(data.error || "Server lookup failed");
 
     setProduct({
-      title,
-      platform: category || "Product",
-      upc: item.upc || upc,
-      marketPrice: referencePrice
-    }, note);
+      title: data.product.title,
+      platform: data.product.category || "Product",
+      upc: data.product.upc || upc,
+      marketPrice: data.market.referencePrice
+    }, data.market.note);
 
-    $("scanStatus").textContent = brand ? `Found: ${brand}` : "UPC found";
+    $("scanStatus").textContent = `Found ${data.market.sampleSize} eBay listings.`;
   } catch (err) {
-    $("scanStatus").textContent = `Lookup failed: ${err.message}. Try another UPC or enter it again.`;
+    $("scanStatus").textContent = `Analysis failed: ${err.message}`;
   }
 }
 
@@ -101,28 +82,23 @@ $("cost").addEventListener("input", calculate);
 $("targetRoi").addEventListener("change", calculate);
 $("feeRate").addEventListener("change", calculate);
 
-$("lookupBtn").addEventListener("click", () => lookupUPC($("manualUpc").value));
+$("lookupBtn").addEventListener("click", () => analyzeUPC($("manualUpc").value));
 $("manualUpc").addEventListener("keydown", e => {
-  if (e.key === "Enter") lookupUPC($("manualUpc").value);
+  if (e.key === "Enter") analyzeUPC($("manualUpc").value);
 });
 
 $("scanBtn").addEventListener("click", async () => {
   const scanner = $("scanner");
   scanner.classList.remove("hidden");
   $("scanStatus").textContent = "";
-
   try {
     if (!("BarcodeDetector" in window)) {
       $("scanStatus").textContent = "Live barcode detection isn't supported here. Enter the UPC manually for now.";
       return;
     }
-
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: {facingMode: {ideal: "environment"}}
-    });
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
     $("video").srcObject = stream;
     await $("video").play();
-
     const detector = new BarcodeDetector({formats:["upc_a","upc_e","ean_13","ean_8"]});
 
     const scan = async () => {
@@ -131,9 +107,9 @@ $("scanBtn").addEventListener("click", async () => {
         const codes = await detector.detect($("video"));
         if (codes.length) {
           const code = codes[0].rawValue;
-          $("scanStatus").textContent = `Scanned: ${code}`;
           stopScanner();
-          await lookupUPC(code);
+          $("manualUpc").value = code;
+          await analyzeUPC(code);
           return;
         }
       } catch {}
@@ -152,11 +128,3 @@ function stopScanner() {
   stream = null;
   $("scanner").classList.add("hidden");
 }
-
-// Keep a sample loaded so the calculator can be tested immediately.
-setProduct({
-  title: "Pokémon Example",
-  platform: "Nintendo Switch",
-  upc: "045496590770",
-  marketPrice: 49.99
-}, "Sample data. Use SCAN UPC or enter a real UPC to test live product identification.");
