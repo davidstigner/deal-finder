@@ -5,6 +5,61 @@ let stream = null;
 const $ = id => document.getElementById(id);
 const money = n => new Intl.NumberFormat("en-US", {style:"currency", currency:"USD"}).format(n);
 
+function renderListings(listings = []) {
+  const grid = $("listingGrid");
+  $("listingCount").textContent = listings.length;
+  grid.innerHTML = "";
+
+  listings.forEach((listing, index) => {
+    const card = document.createElement(listing.url ? "a" : "div");
+    card.className = "listing";
+    if (listing.url) {
+      card.href = listing.url;
+      card.target = "_blank";
+      card.rel = "noopener noreferrer";
+    }
+
+    const image = document.createElement("img");
+    image.className = "listingImage";
+    image.alt = listing.title || `eBay listing ${index + 1}`;
+    image.loading = "lazy";
+    if (listing.imageUrl) {
+      image.src = listing.imageUrl;
+      image.onerror = () => {
+        image.removeAttribute("src");
+        image.classList.add("empty");
+        image.alt = "Photo unavailable";
+        image.textContent = "Photo unavailable";
+      };
+    } else {
+      image.classList.add("empty");
+      image.alt = "Photo unavailable";
+      image.textContent = "Photo unavailable";
+    }
+
+    const info = document.createElement("div");
+    info.className = "listingInfo";
+    const title = document.createElement("div");
+    title.className = "listingTitle";
+    title.textContent = listing.title || "eBay listing";
+    info.appendChild(title);
+
+    if (listing.condition) {
+      const condition = document.createElement("div");
+      condition.className = "listingCondition";
+      condition.textContent = listing.condition;
+      info.appendChild(condition);
+    }
+
+    const price = document.createElement("div");
+    price.className = "listingPrice";
+    price.textContent = money(listing.price || 0);
+
+    card.append(image, info, price);
+    grid.appendChild(card);
+  });
+}
+
 function setProduct(p, note="") {
   product = p;
   $("productTitle").textContent = p.title || "Unknown product";
@@ -12,6 +67,7 @@ function setProduct(p, note="") {
   $("upc").textContent = p.upc || "";
   $("marketPrice").textContent = money(p.marketPrice || 0);
   $("marketNote").textContent = note;
+  renderListings(p.listings || []);
   $("productCard").classList.remove("hidden");
   $("dealCard").classList.remove("hidden");
   calculate();
@@ -69,7 +125,8 @@ async function analyzeUPC(upc) {
       title: data.product.title,
       platform: data.product.category || "Product",
       upc: data.product.upc || upc,
-      marketPrice: data.market.referencePrice
+      marketPrice: data.market.referencePrice,
+      listings: data.market.listings || []
     }, data.market.note);
 
     $("scanStatus").textContent = `Found ${data.market.sampleSize} eBay listings.`;
