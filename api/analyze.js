@@ -70,7 +70,7 @@ async function getItem(token, itemId) {
   if (!r.ok) return null;
   return await r.json();
 }
-function uniqueComparable(items, max = 5) {
+function uniqueComparable(items, max = 20) {
   const seen = new Set();
   return items.map(x => normalize(x)).filter(x => {
     const key = x.itemId || `${x.title}|${x.price}|${x.url}`;
@@ -88,7 +88,7 @@ export default async function handler(request, response) {
     const token = await getEbayToken();
     let items = await ebaySearch(token, {upc, q, limit: 20, condition});
     if (!items.length && upc) items = await ebaySearch(token, {q: upc, limit: 20, condition});
-    const chosen = uniqueComparable(items, 5);
+    const chosen = uniqueComparable(items, 20);
     const details = await Promise.all(chosen.map(x => getItem(token, x.itemId)));
     const listings = chosen.map((x,i) => normalize(x, details[i]));
     const pricedTotals = listings.map(x => x.total).filter(Number.isFinite);
