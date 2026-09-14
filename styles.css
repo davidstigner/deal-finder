@@ -38,3 +38,4 @@ select{display:block;width:100%;margin-top:5px;padding:10px;border-radius:10px;b
 .listingCondition{font-size:11px;color:#94a3b8;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .listingPrice{font-size:16px;font-weight:900;white-space:nowrap;align-self:center}
 @media (max-width:380px){.listing{grid-template-columns:64px 1fr auto}.listingImage{width:64px;height:64px}.listingPrice{font-size:14px}}
+.compareRow{margin-top:14px}.compareRow label{grid-column:1/-1}.excludedHeader{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-top:20px;padding-top:18px;border-top:1px solid #263244}.excludedHeader p{margin:5px 0 0}.excludedBadge{background:#3b2b2b}.excludedListing{opacity:.78}.excludedReason{color:#f0a0a0}

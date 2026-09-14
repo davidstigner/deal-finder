@@ -1,26 +1,14 @@
-# Deal Finder Backend V1
+# Deal Finder V3
 
-This version moves marketplace credentials and eBay calls to a server-side Vercel Function.
+Deal Finder now searches eBay by UPC/GTIN, filters obvious non-comparable listings, supports New/Sealed, Used, or Any condition comparisons, and shows the listing photos, titles, prices, conditions, and links used in the market calculation. Excluded listings are shown separately with an exclusion reason.
 
-## Environment variables
+## V3 market logic
+- Default comparison: New / Sealed.
+- Used and Any condition are available from the UI.
+- Obvious parts, repair, replacement, box-only, display/promotional, and item-only listings are excluded.
+- Market reference is the median of remaining active eBay listing prices.
+- Active listing pricing is a reference, not sold-item data.
 
-Set these in Vercel Project Settings → Environment Variables:
-
+## Vercel environment variables
 - `EBAY_CLIENT_ID`
 - `EBAY_CLIENT_SECRET`
-
-Use the eBay Production Application Keys for live eBay data. Never put the secret in `app.js`, `index.html`, or any public GitHub file.
-
-The endpoint is:
-
-`/api/analyze?upc=YOUR_UPC`
-
-It searches eBay Browse API by GTIN and returns a median active-listing price reference.
-
-Important: active listing prices are not sold-item prices. The next version should add stronger market methodology and, where legally/technically available, sold/transaction data.
-
-## Deployment
-
-Import this repository into Vercel. Vercel will deploy `index.html` as the site and `api/analyze.js` as a serverless function.
-
-The frontend calls `/api/analyze`, so the frontend and backend stay on the same domain.

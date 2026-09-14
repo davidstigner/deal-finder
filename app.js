@@ -60,7 +60,46 @@ function renderListings(listings = []) {
   });
 }
 
-function setProduct(p, note="") {
+function renderExcluded(listings = []) {
+  const box = $("excludedGrid");
+  const count = $("excludedCount");
+  if (!box || !count) return;
+  count.textContent = listings.length;
+  box.innerHTML = "";
+  listings.forEach((listing, index) => {
+    const card = document.createElement(listing.url ? "a" : "div");
+    card.className = "listing excludedListing";
+    if (listing.url) {
+      card.href = listing.url;
+      card.target = "_blank";
+      card.rel = "noopener noreferrer";
+    }
+    const image = document.createElement("img");
+    image.className = "listingImage";
+    image.alt = listing.title || `Excluded listing ${index + 1}`;
+    image.loading = "lazy";
+    if (listing.imageUrl) image.src = listing.imageUrl;
+    else image.classList.add("empty");
+
+    const info = document.createElement("div");
+    info.className = "listingInfo";
+    const title = document.createElement("div");
+    title.className = "listingTitle";
+    title.textContent = listing.title || "eBay listing";
+    const reason = document.createElement("div");
+    reason.className = "listingCondition excludedReason";
+    reason.textContent = listing.reason || "Excluded from comparison";
+    info.append(title, reason);
+
+    const price = document.createElement("div");
+    price.className = "listingPrice";
+    price.textContent = money(listing.price || 0);
+    card.append(image, info, price);
+    box.appendChild(card);
+  });
+}
+
+function setProduct(p, note="", excluded=[]) {
   product = p;
   $("productTitle").textContent = p.title || "Unknown product";
   $("platform").textContent = p.platform || "Category not identified";
@@ -68,6 +107,7 @@ function setProduct(p, note="") {
   $("marketPrice").textContent = money(p.marketPrice || 0);
   $("marketNote").textContent = note;
   renderListings(p.listings || []);
+  renderExcluded(excluded);
   $("productCard").classList.remove("hidden");
   $("dealCard").classList.remove("hidden");
   calculate();
@@ -117,7 +157,8 @@ async function analyzeUPC(upc) {
   if (!upc) return;
   $("scanStatus").textContent = "Analyzing product…";
   try {
-    const response = await fetch(`/api/analyze?upc=${encodeURIComponent(upc)}`);
+    const condition = $("compareCondition")?.value || "new";
+    const response = await fetch(`/api/analyze?upc=${encodeURIComponent(upc)}&condition=${encodeURIComponent(condition)}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Server lookup failed");
 
@@ -127,9 +168,9 @@ async function analyzeUPC(upc) {
       upc: data.product.upc || upc,
       marketPrice: data.market.referencePrice,
       listings: data.market.listings || []
-    }, data.market.note);
+    }, data.market.note, data.market.excluded || []);
 
-    $("scanStatus").textContent = `Found ${data.market.sampleSize} eBay listings.`;
+    $("scanStatus").textContent = `Compared ${data.market.sampleSize} listings and excluded ${data.market.excludedSampleSize || 0}.`;
   } catch (err) {
     $("scanStatus").textContent = `Analysis failed: ${err.message}`;
   }
@@ -138,6 +179,7 @@ async function analyzeUPC(upc) {
 $("cost").addEventListener("input", calculate);
 $("targetRoi").addEventListener("change", calculate);
 $("feeRate").addEventListener("change", calculate);
+$("compareCondition").addEventListener("change", () => analyzeUPC($("manualUpc").value));
 
 $("lookupBtn").addEventListener("click", () => analyzeUPC($("manualUpc").value));
 $("manualUpc").addEventListener("keydown", e => {

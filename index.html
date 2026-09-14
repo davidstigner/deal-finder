@@ -41,6 +41,16 @@
     <strong id="marketPrice">$0.00</strong>
   </div>
   <p id="marketNote" class="muted"></p>
+  <div class="settingsRow compareRow">
+    <label>Compare condition
+      <select id="compareCondition">
+        <option value="new" selected>New / Sealed</option>
+        <option value="used">Used</option>
+        <option value="any">Any condition</option>
+      </select>
+    </label>
+  </div>
+
   <div class="listingsHeader">
     <div>
       <div class="label">LISTINGS COMPARED</div>
@@ -49,6 +59,15 @@
     <span id="listingCount" class="listingCount">0</span>
   </div>
   <div id="listingGrid" class="listingGrid"></div>
+
+  <div class="excludedHeader">
+    <div>
+      <div class="label">EXCLUDED</div>
+      <p class="muted">Listings that were not used in the market calculation.</p>
+    </div>
+    <span id="excludedCount" class="listingCount excludedBadge">0</span>
+  </div>
+  <div id="excludedGrid" class="listingGrid"></div>
 </section>
 
 <section id="dealCard" class="card hidden">
