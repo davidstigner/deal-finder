@@ -1,0 +1,7 @@
+{
+  "name": "margin-hunter",
+  "version": "4.0.0",
+  "private": true,
+  "engines": { "node": ">=18" },
+  "scripts": { "dev": "vercel dev" }
+}
