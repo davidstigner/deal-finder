@@ -67,7 +67,111 @@ export function isBadComparable(x) {
   const t = String(x.title || '').toLowerCase();
   return /(case only|replacement case|empty case|box only|cover only|manual only|artwork only|disc only|game only|digital code|download code|parts only|for parts|broken|damaged|repair|untested|no game|without game|replacement cover)/i.test(t);
 }
-export function comparableFilter(items, max = 20) {
+
+const EDITION_MARKERS = [
+  ['collector', /\bcollector(?:s)?(?:\s+edition)?\b|\bcollectors\s+edition\b/i],
+  ['deluxe', /\bdeluxe\b/i],
+  ['limited', /\blimited\b/i],
+  ['special', /\bspecial\s+edition\b/i],
+  ['ultimate', /\bultimate\b/i],
+  ['gold', /\bgold\s+edition\b/i],
+  ['platinum', /\bplatinum\b/i],
+  ['steelbook', /\bsteelbook\b|\bsteel\s*book\b/i],
+  ['anniversary', /\banniversary\b/i],
+  ['premium', /\bpremium\b/i],
+  ['signature', /\bsignature\s+edition\b/i],
+  ['legendary', /\blegendary\b/i],
+  ['definitive', /\bdefinitive\b/i],
+  ['complete', /\bcomplete\s+edition\b/i],
+  ['goty', /\bgame\s+of\s+the\s+year\b|\bgoty\b/i],
+  ['launch', /\blaunch\s+edition\b|\bday[- ]one\b/i],
+  ['firstprint', /\bfirst\s+print\b|\bfirst\s+edition\b/i],
+  ['remastered', /\bremaster(?:ed|s)?\b/i],
+  ['director', /\bdirector(?:'s|s)?\s+cut\b/i],
+  ['bundle', /\bbundle\b|\bpack\b/i]
+];
+
+const GRADED_RE = /\b(?:psa|cgc|bgs|beckett|wata|vga|sgc)\b|\bgraded\b|\bgem\s*mint\b|\b(?:9\.5|9\.8|10(?:\.0)?)\s*(?:gem|mint|grade|graded)\b/i;
+const REGION_RE = /\b(?:japan(?:ese)?|jp|pal|europe(?:an)?|eu|uk|german|france|french|italian|spanish|korean|asia(?:n)?|australia(?:n)?|australian)\b/i;
+
+function editionMarkers(title) {
+  const t = String(title || '');
+  return new Set(EDITION_MARKERS.filter(([,re]) => re.test(t)).map(([name]) => name));
+}
+
+function platformFamily(text) {
+  const t = String(text || '').toLowerCase();
+  if (/\bplaystation\s*5\b|\bps5\b/.test(t)) return 'ps5';
+  if (/\bplaystation\s*4\b|\bps4\b/.test(t)) return 'ps4';
+  if (/\bplaystation\s*3\b|\bps3\b/.test(t)) return 'ps3';
+  if (/\bplaystation\s*2\b|\bps2\b/.test(t)) return 'ps2';
+  if (/\bpsp\b/.test(t)) return 'psp';
+  if (/\bplaystation\s+vita\b|\bps vita\b|\bpsvita\b/.test(t)) return 'vita';
+  if (/\bnintendo\s+switch\s*2\b|\bswitch\s*2\b/.test(t)) return 'switch2';
+  if (/\bnintendo\s+switch\b|\bswitch\b/.test(t)) return 'switch';
+  if (/\bxbox\s+series\s+[sx]\b|\bseries\s+[sx]\b/.test(t)) return 'xboxseries';
+  if (/\bxbox\s+one\b/.test(t)) return 'xboxone';
+  if (/\bxbox\s*360\b/.test(t)) return 'xbox360';
+  if (/\bxbox\b/.test(t)) return 'xbox';
+  if (/\b3ds\b/.test(t)) return '3ds';
+  if (/\bds\b|\bnintendo\s+ds\b/.test(t)) return 'ds';
+  if (/\bwii\s*u\b/.test(t)) return 'wiiu';
+  if (/\bwii\b/.test(t)) return 'wii';
+  if (/\bps5\b/.test(t)) return 'ps5';
+  return '';
+}
+
+function coreTitle(title) {
+  return String(title || '').toLowerCase()
+    .replace(/\b(?:new|brand\s*new|sealed|factory\s+sealed|mint|complete)\b/g, ' ')
+    .replace(/\b(?:ps[2345]|playstation(?:\s+[2345])?|xbox(?:\s+(?:one|360|series\s+[sx]))?|nintendo\s+switch(?:\s*2)?|switch(?:\s*2)?)\b/g, ' ')
+    .replace(/\b(?:collector(?:s)?|deluxe|limited|special|ultimate|gold|platinum|steelbook|anniversary|premium|signature|legendary|definitive|complete|game\s+of\s+the\s+year|goty|launch|day[- ]one|first\s+print|first\s+edition|remaster(?:ed|s)?|director(?:'s|s)?\s+cut|bundle|pack|edition)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function tokenSimilarity(a,b) {
+  const A = new Set(coreTitle(a).split(/\s+/).filter(Boolean));
+  const B = new Set(coreTitle(b).split(/\s+/).filter(Boolean));
+  if (!A.size || !B.size) return 0;
+  let overlap = 0; for (const t of A) if (B.has(t)) overlap++;
+  return overlap / Math.max(A.size, B.size);
+}
+
+export function comparableMismatch(x, target = {}) {
+  const listingTitle = String(x.title || '');
+  const targetTitle = String(target.title || target.query || '');
+  if (GRADED_RE.test(listingTitle)) return 'Graded/encapsulated listing';
+
+  const targetPlatform = platformFamily(`${target.sys || ''} ${targetTitle}`);
+  const listingPlatform = platformFamily(listingTitle);
+  if (targetPlatform && listingPlatform && targetPlatform !== listingPlatform) {
+    return `Wrong platform (${listingPlatform.toUpperCase()} vs ${targetPlatform.toUpperCase()})`;
+  }
+
+  const targetEditions = editionMarkers(targetTitle);
+  const listingEditions = editionMarkers(listingTitle);
+  if (targetEditions.size === 0 && listingEditions.size > 0) {
+    return `Edition mismatch (${[...listingEditions].join(', ')})`;
+  }
+  if (targetEditions.size > 0) {
+    const shared = [...targetEditions].some(x => listingEditions.has(x));
+    if (!shared) return `Edition mismatch (target: ${[...targetEditions].join(', ')})`;
+    if (targetEditions.has('collector') && !listingEditions.has('collector')) return 'Not the Collector's Edition';
+    if (targetEditions.has('deluxe') && !listingEditions.has('deluxe')) return 'Not the Deluxe Edition';
+    if (targetEditions.has('limited') && !listingEditions.has('limited')) return 'Not the Limited Edition';
+  }
+
+  if (targetTitle) {
+    const sim = tokenSimilarity(targetTitle, listingTitle);
+    if (sim < 0.58) return `Title mismatch (${Math.round(sim * 100)}% core-title match)`;
+  }
+
+  if (REGION_RE.test(listingTitle) && !REGION_RE.test(targetTitle)) return 'Non-US/alternate-region listing';
+  return '';
+}
+
+export function comparableFilter(items, max = 20, target = {}) {
   const seen = new Set(), out = [], excluded = [];
   for (const raw of items) {
     const x = normalize(raw);
@@ -76,6 +180,8 @@ export function comparableFilter(items, max = 20) {
     seen.add(key);
     if (x.price === null) { excluded.push({title:x.title, reason:"No price"}); continue; }
     if (isBadComparable(x)) { excluded.push({title:x.title, reason:"Likely incomplete/damaged/digital listing"}); continue; }
+    const mismatch = comparableMismatch(x, target);
+    if (mismatch) { excluded.push({title:x.title, reason:mismatch}); continue; }
     out.push(x); if (out.length >= max) break;
   }
   return {out, excluded};
