@@ -2,7 +2,7 @@ export default async function handler(request, response) {
   if (request.method !== "POST") return response.status(405).json({error:"Method not allowed"});
   const {items = []} = request.body || {};
   if (!Array.isArray(items) || !items.length) return response.status(400).json({error:"items is required"});
-  if (items.length > 20) return response.status(400).json({error:"Maximum 20 items per batch"});
+  if (items.length > 50) return response.status(400).json({error:"Maximum 50 items per batch"});
   const base = `${request.headers["x-forwarded-proto"] || "https"}://${request.headers.host}`;
   const out = new Array(items.length);
   let cursor = 0;

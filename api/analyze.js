@@ -1,6 +1,10 @@
 const EBAY_API = "https://api.ebay.com";
 const SCOPE = "https://api.ebay.com/oauth/api_scope";
 
+function average(values) {
+  const a = values.filter(Number.isFinite);
+  return a.length ? a.reduce((sum, v) => sum + v, 0) / a.length : 0;
+}
 function median(values) {
   const a = values.filter(Number.isFinite).sort((x, y) => x - y);
   if (!a.length) return 0;
@@ -53,7 +57,7 @@ async function getEbayToken() {
   if (!response.ok) throw new Error(data.error_description || "eBay authentication failed.");
   return data.access_token;
 }
-async function ebaySearch(token, {upc, q, limit = 20, condition = "NEW"}) {
+async function ebaySearch(token, {upc, q, limit = 50, condition = "NEW"}) {
   const url = new URL(`${EBAY_API}/buy/browse/v1/item_summary/search`);
   if (upc) url.searchParams.set("gtin", upc);
   else url.searchParams.set("q", q);
@@ -70,13 +74,25 @@ async function getItem(token, itemId) {
   if (!r.ok) return null;
   return await r.json();
 }
-function uniqueComparable(items, max = 20) {
+function isBadComparable(x) {
+  const t = String(x.title || '').toLowerCase();
+  return /(case only|replacement case|empty case|box only|cover only|manual only|manual\s+only|artwork only|disc only|game only|digital code|download code|parts only|for parts|broken|damaged|repair|untested|no game|without game|replacement cover)/i.test(t);
+}
+function comparableFilter(items, max = 20) {
   const seen = new Set();
-  return items.map(x => normalize(x)).filter(x => {
+  const out = [];
+  const excluded = [];
+  for (const raw of items) {
+    const x = normalize(raw);
     const key = x.itemId || `${x.title}|${x.price}|${x.url}`;
-    if (seen.has(key) || x.price === null) return false;
-    seen.add(key); return true;
-  }).slice(0, max);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (x.price === null) { excluded.push({title:x.title, reason:'No price'}); continue; }
+    if (isBadComparable(x)) { excluded.push({title:x.title, reason:'Likely incomplete/damaged/digital listing'}); continue; }
+    out.push(x);
+    if (out.length >= max) break;
+  }
+  return {out, excluded};
 }
 export default async function handler(request, response) {
   if (request.method !== "GET") return response.status(405).json({error:"Method not allowed"});
@@ -86,18 +102,30 @@ export default async function handler(request, response) {
   if (!upc && !q) return response.status(400).json({error:"UPC or search text is required"});
   try {
     const token = await getEbayToken();
-    let items = await ebaySearch(token, {upc, q, limit: 20, condition});
-    if (!items.length && upc) items = await ebaySearch(token, {q: upc, limit: 20, condition});
-    const chosen = uniqueComparable(items, 20);
-    const details = await Promise.all(chosen.map(x => getItem(token, x.itemId)));
-    const listings = chosen.map((x,i) => normalize(x, details[i]));
+    let items = await ebaySearch(token, {upc, q, limit: 50, condition});
+    if (!items.length && upc) items = await ebaySearch(token, {q: upc, limit: 50, condition});
+    const filtered = comparableFilter(items, 20);
+    const chosen = filtered.out;
+    const compact = String(request.query.compact || "") === "1";
+    const details = compact ? [] : await Promise.all(chosen.map(x => getItem(token, x.itemId)));
+    const listings = chosen.map((x,i) => normalize(x, compact ? null : details[i]));
     const pricedTotals = listings.map(x => x.total).filter(Number.isFinite);
     const priced = listings.map(x => x.price).filter(Number.isFinite);
-    const referencePrice = median(pricedTotals.length ? pricedTotals : priced);
+    const priceSeries = pricedTotals.length ? pricedTotals : priced;
+    const referencePrice = median(priceSeries);
+    const averagePrice = average(priceSeries);
+    const minPrice = priceSeries.length ? Math.min(...priceSeries) : 0;
+    const maxPrice = priceSeries.length ? Math.max(...priceSeries) : 0;
+    const spreadRatio = averagePrice > 0 ? (maxPrice - minPrice) / averagePrice : 1;
     const first = items[0] || {};
+    const confidenceScore = Math.max(0, Math.min(100, Math.round(
+      Math.min(listings.length, 20) / 20 * 55 +
+      Math.max(0, 1 - Math.min(spreadRatio, 1)) * 30 +
+      (first.title || q || upc ? 15 : 0)
+    )));
     return response.status(200).json({
       product:{title:first.title || q || `UPC ${upc}`, category:first.categories?.[0]?.categoryName || "Product", upc, query:q},
-      market:{referencePrice, sampleSize:listings.length, pricingBasis: pricedTotals.length === listings.length ? "item + shipping" : "item price", note:listings.length ? `Median of ${listings.length} current active eBay listings. Active listings are a market reference, not sold-item data.` : "No comparable eBay listings were returned.", listings}
+      market:{referencePrice, averagePrice, minPrice, maxPrice, confidenceScore, marketConfidence:confidenceScore, sampleSize:listings.length, pricingBasis: pricedTotals.length === listings.length ? "item + shipping" : "item price", excludedComparables:filtered.excluded.slice(0,20), note:listings.length ? `Based on ${listings.length} current active eBay listings. These are a market reference, not sold-item history.` : "No comparable eBay listings were returned.", listings}
     });
   } catch(error) { return response.status(500).json({error:error.message || "Unexpected server error"}); }
 }
