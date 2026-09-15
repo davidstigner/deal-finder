@@ -1,7 +1,11 @@
 {
-  "name": "margin-hunter",
-  "version": "4.0.0",
+  "name": "anlzd",
+  "version": "8.0.0",
   "private": true,
-  "engines": { "node": ">=18" },
-  "scripts": { "dev": "vercel dev" }
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "vercel dev"
+  }
 }
