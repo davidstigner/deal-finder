@@ -1,10 +1,10 @@
-# ANLZD v8
+# ANLZD v9
 
 **Sourcing Intelligence | Powered by Area 51 Intelligence**
 
 A mobile-first resale acquisition analyzer using eBay Browse API market references.
 
-## v8 features
+## v9 features
 - Hunt: UPC/title analysis with up to 20 comparable listings.
 - Comparable audit: obvious case-only, damaged, parts, digital-code and incomplete listings are excluded and reasons are shown.
 - Dual confidence: identification confidence and market confidence.
@@ -28,3 +28,15 @@ The eBay Browse API data used here is active-listing data, not sold-item history
 
 ## Deploy
 Deploy the repository to Vercel with the environment variables above.
+
+
+## v9 additions
+- ANLZD Score and true acquisition cost model
+- Capital allocation / buying power
+- Lot Analyzer
+- Market Memory snapshots
+- Local price alerts
+- Actual purchase performance dashboard
+- Marketplace planning foundation
+
+Historical pricing is based on ANLZD snapshots. Active eBay listings are not represented as sold history.
