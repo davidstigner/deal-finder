@@ -15,6 +15,9 @@ export default async function handler(request, response) {
       if (item.upc) p.set("upc", String(item.upc));
       if (item.title) p.set("q", String(item.title));
       if (item.condition) p.set("condition", String(item.condition));
+      // Catalog/Recon batches use compact mode so each target performs one eBay search
+      // instead of up to 20 detail calls. Full Hunt keeps the detailed comp audit.
+      p.set("compact", "1");
       try {
         const r = await fetch(`${base}/api/analyze?${p}`);
         out[i] = {input:item, result:await r.json(), ok:r.ok};

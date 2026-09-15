@@ -43,7 +43,10 @@ function normalize(item, detail) {
     deliveryMax: x.shippingOptions?.[0]?.maxEstimatedDeliveryDate || item?.shippingOptions?.[0]?.maxEstimatedDeliveryDate || null
   };
 }
+let cachedToken = null;
+let cachedTokenExpiresAt = 0;
 async function getEbayToken() {
+  if (cachedToken && Date.now() < cachedTokenExpiresAt) return cachedToken;
   const id = process.env.EBAY_CLIENT_ID;
   const secret = process.env.EBAY_CLIENT_SECRET;
   if (!id || !secret) throw new Error("eBay credentials are not configured on the server.");
@@ -55,7 +58,9 @@ async function getEbayToken() {
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error_description || "eBay authentication failed.");
-  return data.access_token;
+  cachedToken = data.access_token;
+  cachedTokenExpiresAt = Date.now() + Math.max(60, Number(data.expires_in || 7200) - 120) * 1000;
+  return cachedToken;
 }
 async function ebaySearch(token, {upc, q, limit = 50, condition = "NEW"}) {
   const url = new URL(`${EBAY_API}/buy/browse/v1/item_summary/search`);
