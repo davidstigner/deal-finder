@@ -62,7 +62,7 @@ export async function ebaySearch(token, {upc, q, limit = 50, condition = "NEW"})
   const url = new URL(`${EBAY_API}/buy/browse/v1/item_summary/search`);
   if (upc) url.searchParams.set("gtin", upc); else url.searchParams.set("q", q);
   url.searchParams.set("limit", String(limit));
-  url.searchParams.set("filter", `buyingOptions:{FIXED_PRICE},conditions:{${condition}}`);
+  if (condition && condition !== "ANY") url.searchParams.set("filter", `buyingOptions:{FIXED_PRICE},conditions:{${condition}}`);
   const r = await fetchWithTimeout(url, {headers:{"Authorization":`Bearer ${token}`,"Accept":"application/json","X-EBAY-C-MARKETPLACE-ID":"EBAY_US","X-EBAY-C-ENDUSERCTX":`contextualLocation=country=US,zip=${process.env.EBAY_ZIP || "95307"}`}});
   const text = await r.text();
   let data; try { data = JSON.parse(text); } catch { throw new Error(`eBay search returned HTTP ${r.status} instead of JSON.`); }
