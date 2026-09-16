@@ -12,7 +12,7 @@ async function analyzeCompact(token,item){
 }
 export default async function handler(request,response){
   if(request.method!=="POST")return response.status(405).json({error:"Method not allowed"});
-  const {items=[]}=request.body||{}; if(!Array.isArray(items)||!items.length)return response.status(400).json({error:"items is required"}); if(items.length>8)return response.status(400).json({error:"This endpoint accepts up to 8 items per request. The Recon and Catalog clients automatically split larger scans into 8-item batches."});
+  const {items=[]}=request.body||{}; if(!Array.isArray(items)||!items.length)return response.status(400).json({error:"items is required"}); if(items.length>8)return response.status(400).json({error:"Maximum 8 items per batch"});
   try{
     const token=await getEbayToken(), out=new Array(items.length); let cursor=0;
     async function worker(){while(true){const i=cursor++;if(i>=items.length)return;try{out[i]={input:items[i],result:await analyzeCompact(token,items[i]),ok:true}}catch(e){out[i]={input:items[i],result:{error:e.message||"Analysis failed"},ok:false}}}}
