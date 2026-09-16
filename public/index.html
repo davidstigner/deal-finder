@@ -149,61 +149,135 @@ function confidenceClass(n){return n>=75?'high':n>=50?'mid':'low'}
 function reconCard(item,i){const m=item.market||{};const conf=Number(item.confidence||m.confidenceScore||0);return `<button class="recon-item" onclick="openReconItem(${i})"><img src="${esc(item.image||'')}" onerror="this.style.opacity=.18" alt=""><div><div class="ri-title">${esc(item.title||'Unknown item')}</div><div class="meta">${item.upc?`UPC ${esc(item.upc)} · `:''}${esc(item.conditionLabel||'New / Sealed')}</div><div class="ri-stat"><span>Avg market <b>${money(m.averagePrice||m.referencePrice)}</b></span><span>Suggested buy <b class="green">${money(item.suggestedBuy)}</b></span></div></div><div class="confidence ${confidenceClass(conf)}">${conf}%<br><span style="font-size:9px;color:#7e8da2">CONFIDENCE</span></div></button>`}
 window.openReconItem=async function(i){const item=reconItems[i];if(!item)return;switchTab('scan');$('#upc').value=item.upc||'';$('#buyCost').value=Number(item.suggestedBuy||0).toFixed(2);$('#result').innerHTML=loading('Opening full target analysis…');try{const d=await analyze(item.upc||'',item.upc?'':item.title);renderResult(d,item.upc||'',Number(item.suggestedBuy||0));window.scrollTo({top:0,behavior:'smooth'});}catch(e){$('#result').innerHTML=`<div class="panel"><b class="red">Target analysis failed</b><p class="hint">${esc(e.message)}</p></div>`;toast(e.message)}};
 async function analyzeReconTargets(items){
-  const all=Array.isArray(items)?items:[];
-  if(!all.length)return [];
-  const chunkSize=8;
-  const out=[];
-  for(let start=0;start<all.length;start+=chunkSize){
-    const chunk=all.slice(start,start+chunkSize);
-    $('#missionStat').textContent=`Recon ${start+1}–${Math.min(start+chunkSize,all.length)} of ${all.length}`;
+  const clean=items.filter(Boolean).slice(0,50);
+  if(!clean.length)return[];
+  const all=[];
+  const batchSize=8;
+  for(let i=0;i<clean.length;i+=batchSize){
+    const chunk=clean.slice(i,i+batchSize);
+    $('#missionStat').textContent=`Recon ${Math.min(i+chunk.length,clean.length)}/${clean.length}`;
     const r=await fetch('/api/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:chunk})});
-    const text=await r.text();
-    let d;
-    try{d=JSON.parse(text)}catch{throw new Error(`Recon API returned HTTP ${r.status} instead of JSON. ${text.slice(0,120)}`)}
+    const text=await r.text();let d;try{d=JSON.parse(text)}catch{throw new Error(`Recon API returned HTTP ${r.status} instead of JSON.`)}
     if(!r.ok)throw new Error(d.error||'Recon analysis failed');
-    out.push(...(d.results||[]));
+    all.push(...(d.results||[]));
   }
-  return out;
+  return all;
 }
-$('#photoScanBtn').onclick=async()=>{const f=$('#photoInput').files[0];if(!f){toast('Take or choose a photo first');return}$('#photoScanBtn').disabled=true;reconItems=[];$('#photoResult').innerHTML=loading('Recon is identifying up to 50 targets…');try{const img=new Image();img.src=URL.createObjectURL(f);await img.decode();let codes=await detectBarcodes(img);codes=[...new Map(codes.map(c=>[c.rawValue,c])).values()].slice(0,50);let results=[];const barcodeItems=codes.map(c=>({upc:c.rawValue,condition:$('#condition').value}));if(barcodeItems.length)results=await analyzeReconTargets(barcodeItems);if(codes.length<50){const text=await ocrText(img);const candidates=ocrCandidates(text).filter(q=>!results.some(r=>String(r.input?.upc||'').toLowerCase()===q.toLowerCase()||String(r.result?.product?.title||'').toLowerCase()===q.toLowerCase()));if(candidates.length)results.push(...await analyzeReconTargets(candidates.map(q=>({title:q,condition:$('#condition').value}))))}reconItems=results.filter(x=>x.ok&&x.result?.market?.referencePrice>0).map(x=>{const m=x.result.market||{},p=x.result.product||{},input=x.input||{};const buy=Number(input.buyCost||0);const suggestedBuy=calc(m.referencePrice,Math.max(0,buy||1)).maxBuy;const exact=input.upc?96:Math.max(50,Math.min(89,Number(m.confidenceScore||60)));return{upc:input.upc||'',title:p.title||input.title||'Unknown item',image:m.listings?.[0]?.imageUrl||'',market:m,suggestedBuy,confidence:exact,conditionLabel:$('#condition').value==='USED'?'Used':'New / Sealed'};}).filter((x,i,a)=>i===a.findIndex(y=>(x.upc&&y.upc===x.upc)||(!x.upc&&y.title===x.title))).slice(0,50);if(!reconItems.length){$('#photoResult').innerHTML='<div class="panel"><div class="empty">Recon could not confidently identify any products. Try a clearer photo with barcodes or readable spines.</div></div>';}else{$('#photoResult').innerHTML=`<div class="panel recon-hero"><div class="eyebrow">RECON COMPLETE</div><h3 style="margin:5px 0">${reconItems.length} target${reconItems.length===1?'':'s'} identified</h3><p class="hint">Each target includes an average market reference, suggested maximum purchase price and identification confidence. Tap an item for the full Hunt analysis.</p></div><div class="section-title">IDENTIFIED TARGETS // TAP TO ANALYZE</div><div class="scan-results">${reconItems.map(reconCard).join('')}</div>`}$('#missionStat').textContent=`${reconItems.length} recon targets`;}catch(e){$('#photoResult').innerHTML=`<div class="panel"><b class="red">Recon failed</b><p class="hint">${esc(e.message)}</p></div>`;toast(e.message)}finally{$('#photoScanBtn').disabled=false}};
-
-(function initV8UI(){
-  const tabs=$('.tabs');
-  if(tabs&&!document.querySelector('[data-tab="buylist"]')){const b=document.createElement('button');b.className='tab';b.dataset.tab='buylist';b.textContent='🛒 Buy List';tabs.appendChild(b);b.onclick=()=>switchTab('buylist')}
-  const main=document.querySelector('main');
-  if(main&&!$('#buylist')){const sec=document.createElement('section');sec.id='buylist';sec.className='view hidden';sec.innerHTML='<div class="panel"><div class="eyebrow">ACQUISITION BOARD</div><h2>Buy List</h2><p class="sub">Targets you want to remember, plus actual purchase prices and realized deal math.</p></div><div id="buyListContent"></div>';main.insertBefore(sec,$('#settings'))}
-  if(!$('#paidModal')){const m=document.createElement('div');m.id='paidModal';m.className='modal hidden';m.innerHTML='<div class="modal-card"><button class="secondary close" onclick="$(\'#paidModal\').classList.add(\'hidden\')">CLOSE</button><div class="eyebrow">PURCHASE RECORD</div><h2>I PAID</h2><p class="sub">Record the actual acquisition cost. ANLZD will calculate your actual ROI and profit.</p><div class="field"><label>Actual amount paid</label><input id="paidPrice" type="number" step=".01" min="0"></div><div class="actions"><button class="primary" onclick="savePaid()">SAVE PURCHASE</button></div></div>';document.body.appendChild(m)}
-  if(!$('#cropModal')){const m=document.createElement('div');m.id='cropModal';m.className='modal hidden';m.innerHTML='<div class="modal-card"><button class="secondary close" onclick="closeCrop()">CLOSE</button><div class="eyebrow">MANUAL RECON</div><h2>Crop & Retry</h2><p class="hint">Use percentages to isolate a case, spine, or small shelf area, then run Recon on the crop.</p><canvas id="cropCanvas" class="crop-preview"></canvas><div class="crop-grid"><div class="field"><label>Left %</label><input id="cropX" type="number" value="0" min="0" max="99"></div><div class="field"><label>Top %</label><input id="cropY" type="number" value="0" min="0" max="99"></div><div class="field"><label>Width %</label><input id="cropW" type="number" value="100" min="1" max="100"></div><div class="field"><label>Height %</label><input id="cropH" type="number" value="100" min="1" max="100"></div></div><div class="actions"><button class="secondary" onclick="updateCropPreview()">UPDATE CROP</button><button class="primary" onclick="analyzeCrop()">🔭 ANALYZE CROP</button></div></div>';document.body.appendChild(m)}
-  renderBuyList();
-})();
-
-// v8: wrap the existing full-result renderer to add Buy List, dual confidence, and comp audit.
-const _renderResultV7=renderResult;
-renderResult=function(d,upc,buy){
-  currentTarget=null;_renderResultV7(d,upc,buy);
-  const m=d.market||{},p=d.product||{},list=m.listings||[];
-  const idConfidence=upc?96:Math.max(50,Math.min(89,Number(m.confidenceScore||60)));
-  const marketConfidence=Number(m.marketConfidence||m.confidenceScore||0);
-  currentTarget={title:p.title||'Unknown item',upc:upc||p.upc||'',image:list[0]?.imageUrl||'',market:Number(m.referencePrice||0),maxBuy:calc(m.referencePrice,buy).maxBuy,buy:Number(buy||0),idConfidence,marketConfidence};
-  const deal=$('#result .deal');
-  if(deal){const actions=deal.querySelector('.actions');if(actions){actions.insertAdjacentHTML('afterbegin',`<button class="primary" onclick="addBuyList(currentTarget)">🛒 ADD TO BUY LIST</button><button class="secondary" onclick="openPaid(null)">💵 I PAID</button>`)}const pair=document.createElement('div');pair.className='score-pair';pair.innerHTML=`<span class="score-pill">IDENTIFICATION ${idConfidence}%</span><span class="score-pill">MARKET ${marketConfidence}%</span>`;deal.insertBefore(pair,deal.querySelector('.range'));}
-  if(m.excludedComparables?.length){const sec=document.createElement('div');sec.className='panel';sec.innerHTML=`<div class="eyebrow">COMP AUDIT</div><b>${m.excludedComparables.length} listings excluded</b><div class="exclude-list">${m.excludedComparables.map(x=>`<div class="exclude-row"><b>${esc(x.reason)}</b> · ${esc(x.title)}</div>`).join('')}</div>`;$('#result').appendChild(sec)}
+function reconCanvas(img,w,h,mode='normal'){
+  const c=document.createElement('canvas'),ctx=c.getContext('2d',{willReadFrequently:true});
+  const scale=Math.min(1.8,Math.max(1,1600/(img.naturalWidth||img.width||1)));
+  c.width=Math.max(1,Math.round(w*scale));c.height=Math.max(1,Math.round(h*scale));
+  ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+  ctx.drawImage(img,0,0,w,h,0,0,c.width,c.height);
+  if(mode==='contrast'||mode==='threshold'){
+    const data=ctx.getImageData(0,0,c.width,c.height),d=data.data;
+    for(let i=0;i<d.length;i+=4){
+      const y=(d[i]*.299+d[i+1]*.587+d[i+2]*.114);let v=(y-128)*1.55+128;
+      if(mode==='threshold')v=v>145?255:0;
+      d[i]=d[i+1]=d[i+2]=Math.max(0,Math.min(255,v));
+    }
+    ctx.putImageData(data,0,0);
+  }
+  return c;
+}
+async function detectBarcodes(img){
+  if(!('BarcodeDetector' in window))return[];
+  try{
+    const d=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']});
+    const found=[];const add=xs=>xs.forEach(x=>{if(x?.rawValue&&!found.some(y=>y.rawValue===x.rawValue))found.push(x)});
+    add(await d.detect(img));
+    const cols=4,rows=5,w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;
+    const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
+    for(let r=0;r<rows&&found.length<50;r++)for(let c=0;c<cols&&found.length<50;c++){
+      const sx=Math.floor(c*w/cols),sy=Math.floor(r*h/rows),sw=Math.floor(w/cols),sh=Math.floor(h/rows);
+      canvas.width=sw;canvas.height=sh;ctx.drawImage(img,sx,sy,sw,sh,0,0,sw,sh);
+      try{add(await d.detect(canvas))}catch(e){}
+    }
+    return found.slice(0,50);
+  }catch(e){return[]}
+}
+async function ocrOne(source,psm=11){
+  if(!window.Tesseract)return'';
+  try{const r=await Tesseract.recognize(source,'eng',{config:{tessedit_pageseg_mode:String(psm)},logger:m=>{if(m.status==='recognizing text'&&m.progress>.05)$('#missionStat').textContent='OCR '+Math.round(m.progress*100)+'%'}});return r.data.text||''}catch(e){return''}
+}
+function cleanOcrLine(x){return String(x||'').replace(/[^A-Za-z0-9:&'’!?.+\- ]/g,' ').replace(/\s+/g,' ').trim()}
+function ocrCandidates(text){
+  const bad=/^(barcode|rating|copyright|nintendo|sony|microsoft|sega|playstation|switch|xbox|wii|ps[2345]|everyone|teen|mature|active|ea sports|electronic arts|ubisoft)$/i;
+  return [...new Set(String(text||'').split(/\n|\r/).map(cleanOcrLine)
+    .filter(x=>x.length>=5&&x.length<=72)
+    .filter(x=>/[A-Za-z]{3,}/.test(x))
+    .filter(x=>!bad.test(x))
+    .filter(x=>!/^([A-Za-z]\s*){1,5}$/.test(x))
+    .filter(x=>!/^\d+[\d\s.$:-]*$/.test(x))
+  )];
+}
+async function shelfOcr(img){
+  const w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;
+  const texts=[];
+  texts.push(await ocrOne(img,11));
+  const bands=14;
+  for(let i=0;i<bands;i++){
+    const y=Math.floor(i*h/bands),y2=Math.floor((i+1)*h/bands),bh=Math.max(40,y2-y);
+    const crop=reconCanvas(img,w,bh,'contrast');
+    const srcCanvas=document.createElement('canvas'),sctx=srcCanvas.getContext('2d');
+    srcCanvas.width=crop.width;srcCanvas.height=crop.height;sctx.drawImage(crop,0,0);
+    // The crop above is a full-size canvas. Draw the actual band from the source image instead.
+    const band=document.createElement('canvas'),bctx=band.getContext('2d');
+    const scale=Math.min(2,Math.max(1,1800/w));band.width=Math.round(w*scale);band.height=Math.round(bh*scale);
+    bctx.imageSmoothingEnabled=true;bctx.imageSmoothingQuality='high';bctx.drawImage(img,0,y,w,bh,0,0,band.width,band.height);
+    const data=bctx.getImageData(0,0,band.width,band.height),d=data.data;
+    for(let p=0;p<d.length;p+=4){const yy=d[p]*.299+d[p+1]*.587+d[p+2]*.114;const v=(yy-128)*1.45+128;d[p]=d[p+1]=d[p+2]=Math.max(0,Math.min(255,v));}
+    bctx.putImageData(data,0,0);
+    texts.push(await ocrOne(band,6));
+  }
+  return ocrCandidates(texts.join('\n'));
+}
+function mapReconResults(results){
+  return results.filter(x=>x.ok&&x.result?.market&&(x.result.market.referencePrice>0||x.result.market.averagePrice>0)).map(x=>{
+    const m=x.result.market||{},p=x.result.product||{},input=x.input||{};
+    const market=Number(m.referencePrice||m.averagePrice||0),suggestedBuy=market?calc(market,1).maxBuy:0;
+    const idConfidence=input.upc?96:Math.max(50,Math.min(89,Number(m.confidenceScore||60)));
+    return {upc:input.upc||'',title:p.title||input.title||'Unknown item',sys:input.sys||'',image:m.listings?.[0]?.imageUrl||'',market:m,marketValue:market,marketData:m,suggestedBuy,maxBuy:suggestedBuy,confidence:idConfidence,idConfidence,marketConfidence:Number(m.marketConfidence||m.confidenceScore||0),conditionLabel:$('#condition').value==='USED'?'Used':'New / Sealed'};
+  });
+}
+$('#photoScanBtn').onclick=async()=>{
+  const f=$('#photoInput').files[0];if(!f){toast('Take or choose a photo first');return}
+  $('#photoScanBtn').disabled=true;$('#photoResult').innerHTML=loading('Recon is scanning the entire photo…');
+  try{
+    const img=new Image();img.src=URL.createObjectURL(f);await img.decode();
+    $('#photoPreview').src=img.src;$('#photoPreview').classList.remove('hidden');
+    let codes=await detectBarcodes(img);codes=[...new Map(codes.map(c=>[c.rawValue,c])).values()].slice(0,50);
+    let results=[];
+    if(codes.length)results=await analyzeReconTargets(codes.map(c=>({upc:c.rawValue,condition:$('#condition').value})));
+    let candidates=await shelfOcr(img);
+    const known=new Set(results.map(r=>String(r.input?.upc||'').toLowerCase()).filter(Boolean));
+    const knownTitles=new Set(results.map(r=>String(r.result?.product?.title||'').toLowerCase()).filter(Boolean));
+    candidates=candidates.filter(x=>!known.has(x.title.toLowerCase())&&!knownTitles.has(x.title.toLowerCase())).slice(0,Math.max(0,50-results.length));
+    if(candidates.length){
+      results.push(...await analyzeReconTargets(candidates.map(x=>({title:x.title,sys:x.sys,condition:$('#condition').value}))));
+    }
+    const mapped=mapReconResults(results);
+    mergeReconResults(mapped);renderReconSession();
+    if(!reconSession.length)toast('No confident targets found. Try a closer, brighter photo or Crop & Retry.');
+  }catch(e){$('#photoResult').innerHTML=`<div class="panel"><b class="red">Recon failed</b><p class="hint">${esc(e.message)}</p></div>`;toast(e.message)}
+  finally{$('#photoScanBtn').disabled=false;$('#missionStat').textContent=`${reconSession.length} recon targets`}
 };
-
-// Multi-photo Recon session support.
 window.clearReconSession=function(){reconSession=[];reconItems=[];$('#photoResult').innerHTML='';$('#photoInput').value='';$('#photoPreview').classList.add('hidden');toast('Recon session cleared')};
-window.mergeReconResults=function(items){for(const item of items){const key=item.upc||item.title.toLowerCase();const idx=reconSession.findIndex(x=>(x.upc&&x.upc===item.upc)||(!x.upc&&x.title.toLowerCase()===item.title.toLowerCase()));if(idx>=0)reconSession[idx]={...reconSession[idx],...item};else reconSession.push(item)}reconSession=reconSession.slice(0,50);reconItems=reconSession;}
-// Replace the v7 photo handler with a session-aware version.
-$('#photoScanBtn').onclick=async()=>{const f=$('#photoInput').files[0];if(!f){toast('Take or choose a photo first');return}$('#photoScanBtn').disabled=true;$('#photoResult').innerHTML=loading('Recon is scanning this photo and processing every detected item…');try{const img=new Image();img.src=URL.createObjectURL(f);await img.decode();let codes=await detectBarcodes(img);codes=[...new Map(codes.map(c=>[c.rawValue,c])).values()].slice(0,50);let results=[];if(codes.length){results=await analyzeReconTargets(codes.map(c=>({upc:c.rawValue,condition:$('#condition').value})))}if(codes.length<50){const text=await ocrText(img);const candidates=ocrCandidates(text).filter(q=>!results.some(r=>String(r.input?.upc||'').toLowerCase()===q.toLowerCase()||String(r.result?.product?.title||'').toLowerCase()===q.toLowerCase()));if(candidates.length)results.push(...await analyzeReconTargets(candidates.slice(0,Math.max(0,50-results.length)).map(q=>({title:q,condition:$('#condition').value}))));}
-const mapped=results.filter(x=>x.ok&&x.result?.market?.referencePrice>0).map(x=>{const m=x.result.market||{},p=x.result.product||{},input=x.input||{};const suggestedBuy=m.referencePrice?calc(m.referencePrice,1).maxBuy:0;const idConfidence=input.upc?96:Math.max(50,Math.min(89,Number(m.confidenceScore||60)));return{upc:input.upc||'',title:p.title||input.title||'Unknown item',image:m.listings?.[0]?.imageUrl||'',market:m,suggestedBuy,maxBuy:suggestedBuy,confidence:idConfidence,idConfidence,marketConfidence:Number(m.marketConfidence||m.confidenceScore||0),conditionLabel:$('#condition').value==='USED'?'Used':'New / Sealed'};});mergeReconResults(mapped);renderReconSession();}catch(e){$('#photoResult').innerHTML=`<div class="panel"><b class="red">Recon failed</b><p class="hint">${esc(e.message)}</p></div>`;toast(e.message)}finally{$('#photoScanBtn').disabled=false}};
-function renderReconSession(){if(!reconSession.length){$('#photoResult').innerHTML='<div class="panel empty">No targets identified yet.</div>';return}$('#photoResult').innerHTML=`<div class="panel recon-hero"><div class="eyebrow">RECON SESSION</div><h3 style="margin:5px 0">${reconSession.length} unique target${reconSession.length===1?'':'s'} identified</h3><p class="hint">Scan another photo to add more. Up to 50 unique targets are kept in the session. Recon processes them in safe 8-item API batches automatically.</p><div class="session-bar"><b>${reconSession.length}/50 targets</b><button class="secondary mini" onclick="openCrop()">CROP & RETRY</button><button class="danger mini" onclick="clearReconSession()">CLEAR SESSION</button></div></div><div class="section-title">IDENTIFIED TARGETS // TAP TO ANALYZE</div><div class="scan-results">${reconSession.map(reconCard).join('')}</div>`;$('#missionStat').textContent=`${reconSession.length} recon targets`}
-
-// Crop tool: isolates a region and feeds it back through the same barcode/OCR pipeline.
-let cropImage=null;
-window.openCrop=function(){const src=$('#photoPreview').src;if(!src){toast('Scan or choose a photo first');return}cropImage=new Image();cropImage.src=src;cropImage.onload=()=>{$('#cropModal').classList.remove('hidden');updateCropPreview()}};
-window.closeCrop=function(){$('#cropModal').classList.add('hidden');cropImage=null};
-window.updateCropPreview=function(){if(!cropImage)return;const c=$('#cropCanvas'),ctx=c.getContext('2d'),x=num($('#cropX').value)/100,y=num($('#cropY').value)/100,w=Math.min(num($('#cropW').value)/100,1-x),h=Math.min(num($('#cropH').value)/100,1-y);const sx=cropImage.naturalWidth*x,sy=cropImage.naturalHeight*y,sw=cropImage.naturalWidth*w,sh=cropImage.naturalHeight*h;c.width=Math.max(1,Math.round(sw));c.height=Math.max(1,Math.round(sh));ctx.drawImage(cropImage,sx,sy,sw,sh,0,0,c.width,c.height)};
-window.analyzeCrop=async function(){if(!cropImage)return;updateCropPreview();const blob=await new Promise(r=>$('#cropCanvas').toBlob(r,'image/jpeg',.92));if(!blob){toast('Could not create crop');return}closeCrop();const f=new File([blob],'recon-crop.jpg',{type:'image/jpeg'});const dt=new DataTransfer();dt.items.add(f);$('#photoInput').files=dt.files;await $('#photoScanBtn').onclick()};
+window.mergeReconResults=function(items){
+  for(const item of items){
+    const upc=String(item.upc||'');
+    const title=String(item.title||'').toLowerCase();
+    const sys=String(item.sys||'').toLowerCase();
+    const idx=reconSession.findIndex(x=>upc&&x.upc===upc || (!upc&&String(x.title||'').toLowerCase()===title&&String(x.sys||'').toLowerCase()===sys));
+    if(idx>=0)reconSession[idx]={...reconSession[idx],...item}; else reconSession.push(item);
+  }
+  reconSession=reconSession.slice(0,50);reconItems=reconSession;
+};
+function renderReconSession(){
+  if(!reconSession.length){$('#photoResult').innerHTML='<div class="panel empty">No targets identified yet.</div>';return}
+  $('#photoResult').innerHTML=`<div class="panel recon-hero"><div class="eyebrow">RECON SESSION</div><h3 style="margin:5px 0">${reconSession.length} unique target${reconSession.length===1?'':'s'} identified</h3><p class="hint">Scan another photo to add more. Up to 50 unique targets are kept in the session. Large photos are OCR-scanned in multiple passes and analyzed in safe 8-item API batches.</p><div class="session-bar"><b>${reconSession.length}/50 targets</b><button class="secondary mini" onclick="openCrop()">CROP & RETRY</button><button class="danger mini" onclick="clearReconSession()">CLEAR SESSION</button></div></div><div class="section-title">IDENTIFIED TARGETS // TAP TO ANALYZE</div><div class="scan-results">${reconSession.map(reconCard).join('')}</div>`;
+  $('#missionStat').textContent=`${reconSession.length} recon targets`;
+}
 
 $('#scanBtn').onclick=async()=>{if(!navigator.mediaDevices?.getUserMedia||!('BarcodeDetector' in window)){toast('Live scanning is unavailable here. Use Recon or enter the UPC.');return}try{scannerStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});$('#scannerVideo').srcObject=scannerStream;$('#scannerModal').classList.remove('hidden');scannerLive=true;const detector=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']});while(scannerLive){try{const found=await detector.detect($('#scannerVideo'));if(found[0]){$('#upc').value=found[0].rawValue;closeScanner();toast('Target barcode acquired');break}}catch(e){}await new Promise(r=>setTimeout(r,160))}}catch(e){toast('Camera permission was not available')}};
 function closeScanner(){scannerLive=false;if(scannerStream){scannerStream.getTracks().forEach(t=>t.stop());scannerStream=null}$('#scannerVideo').srcObject=null;$('#scannerModal').classList.add('hidden')}$('#closeScanner').onclick=closeScanner;
