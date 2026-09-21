@@ -148,6 +148,20 @@ function renderCatalogResults(){const failed=batchData.filter(x=>!x.ok);const go
 window.openCatalogItem=async function(i){const good=batchData.filter(x=>x.ok&&Number.isFinite(Number(x.result?.market?.referencePrice))).map(x=>{const m=x.result.market||{},c=calc(m.referencePrice,x.input.buyCost),p=x.result.product||{};return {...x,calc:c,product:p,market:m}}).filter(x=>x.input.buyCost>0&&x.calc.roi!=null).sort((a,b)=>b.calc.roi-a.calc.roi);const x=good[i];if(!x)return;switchTab('scan');$('#upc').value=x.input.upc||'';$('#buyCost').value=Number(x.input.buyCost||0).toFixed(2);$('#result').innerHTML=loading('Opening full target analysis…');try{const d=await analyze(x.input.upc||'',x.input.upc?'':x.input.title);renderResult(d,x.input.upc||'',Number(x.input.buyCost||0));window.scrollTo({top:0,behavior:'smooth'});}catch(e){$('#result').innerHTML=`<div class="panel"><b class="red">Target analysis failed</b><p class="hint">${esc(e.message)}</p></div>`;toast(e.message)}};
 $('#downloadCsv').onclick=()=>{if(!batchData.length){toast('Analyze a catalog first');return}const out=[['Product','UPC','Qty','Buy Cost','Market Reference','Decision','Profit','ROI','Max Buy','Comps']];for(const x of [...batchData].filter(x=>x.ok).sort((a,b)=>calc(b.result.market?.referencePrice,b.input.buyCost).roi-calc(a.result.market?.referencePrice,a.input.buyCost).roi)){const c=calc(x.result.market?.referencePrice,x.input.buyCost),p=x.result.product||{};out.push([p.title||x.input.title,x.input.upc||'',x.input.qty||1,x.input.buyCost,x.result.market?.referencePrice||'',c.verdict,c.profit,c.roi==null?'N/A':c.roi.toFixed(1)+'%',c.maxBuy,x.result.market?.sampleSize||0])}const csv=out.map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='anlzd-results.csv';a.click()};
 $('#photoInput').onchange=e=>{const f=e.target.files[0];if(f){$('#photoPreview').src=URL.createObjectURL(f);$('#photoPreview').classList.remove('hidden')}};
+function dedupeCodes(codes){
+  const seen=new Map();
+  for(const code of (codes||[])){
+    const raw=String(code?.rawValue??code?.text??'').replace(/\D/g,'');
+    if(!raw) continue;
+    let normalized=raw;
+    if(raw.length===13 && raw.startsWith('0')) normalized=raw.slice(1);
+    if(![8,12,13].includes(raw.length) && raw.length!==14) continue;
+    const key=normalized;
+    if(!seen.has(key)) seen.set(key,{...code,rawValue:raw});
+  }
+  return [...seen.values()];
+}
+
 async function detectBarcodesNative(img){
   if(!('BarcodeDetector' in window))return[];
   try{const formats=(await BarcodeDetector.getSupportedFormats?.())||['ean_13','ean_8','upc_a','upc_e','code_128'];const wanted=formats.filter(x=>['ean_13','ean_8','upc_a','upc_e','code_128'].includes(x));const d=new BarcodeDetector({formats:wanted.length?wanted:formats});const found=[];const add=xs=>found.push(...(xs||[]));add(await d.detect(img));
