@@ -1,11 +1,12 @@
 {
   "name": "anlzd",
-  "version": "9.0.0",
+  "version": "12.0.0",
   "private": true,
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "dev": "vercel dev"
+    "dev": "vercel dev",
+    "test": "node --check api/batch.js && node --check api/analyze.js && node --check api/ebay.js && node --check api/vision.js"
   }
 }
