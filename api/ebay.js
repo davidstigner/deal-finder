@@ -62,7 +62,7 @@ export async function ebaySearch(token, {upc, q, limit = 50, condition = "NEW"})
   const url = new URL(`${EBAY_API}/buy/browse/v1/item_summary/search`);
   if (upc) url.searchParams.set("gtin", upc); else url.searchParams.set("q", q);
   url.searchParams.set("limit", String(limit));
-  if (condition && condition !== "ANY") url.searchParams.set("filter", `buyingOptions:{FIXED_PRICE},conditions:{${condition}}`);
+  url.searchParams.set("filter", `buyingOptions:{FIXED_PRICE},conditions:{${condition}}`);
   const r = await fetchWithTimeout(url, {headers:{"Authorization":`Bearer ${token}`,"Accept":"application/json","X-EBAY-C-MARKETPLACE-ID":"EBAY_US","X-EBAY-C-ENDUSERCTX":`contextualLocation=country=US,zip=${process.env.EBAY_ZIP || "95307"}`}});
   const text = await r.text();
   let data; try { data = JSON.parse(text); } catch { throw new Error(`eBay search returned HTTP ${r.status} instead of JSON.`); }
@@ -188,7 +188,8 @@ export function comparableMismatch(x, target = {}) {
 
   const targetUpc = String(target.upc || target.gtin || '').replace(/\D/g,'');
   const listingUpc = listingGtins(x);
-  if (targetUpc && listingUpc.length && !listingUpc.includes(targetUpc)) return 'UPC/GTIN mismatch';
+  const gtinEquivalent = (a,b) => a===b || (a.length===12 && b.length===13 && b.startsWith('0') && b.slice(1)===a) || (b.length===12 && a.length===13 && a.startsWith('0') && a.slice(1)===b);
+  if (targetUpc && listingUpc.length && !listingUpc.some(v=>gtinEquivalent(targetUpc,v))) return 'UPC/GTIN mismatch';
 
   if (targetTitle) {
     const sim = tokenSimilarity(targetTitle, listingTitle);
