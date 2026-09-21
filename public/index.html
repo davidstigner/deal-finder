@@ -68,9 +68,15 @@
   <div class="panel">
     <div class="eyebrow">VISUAL RECON</div><h2>Point the camera at the inventory.</h2>
     <p class="sub">Scan one photo and Recon will identify the items it can find, estimate the average market price, suggest a maximum purchase price, and rate confidence. Tap any item for the full Hunt analysis.</p>
-    <label class="secondary file-pick" for="photoInput">📁 CHOOSE PHOTO</label><input id="photoInput" type="file" accept="image/*" capture="environment" style="display:none"><span id="photoFileName" class="hint">No photo selected</span>
+    <div class="actions recon-source-actions">
+      <button class="secondary" id="reconCameraBtn" type="button">📷 TAKE PHOTO</button>
+      <button class="secondary" id="reconAlbumBtn" type="button">🖼️ PHOTO ALBUM</button>
+      <button class="primary" id="photoScanBtn" type="button">🔭 SCAN PHOTO</button>
+    </div>
+    <input id="photoInput" type="file" accept="image/*" style="display:none">
+    <input id="reconCameraInput" type="file" accept="image/*" capture="environment" style="display:none">
+    <div id="photoFileName" class="hint" style="margin-top:8px">No photo selected</div>
     <img id="photoPreview" class="camera-preview hidden">
-    <div class="actions"><button class="primary" id="photoScanBtn">🔭 SCAN PHOTO</button></div>
     <div id="photoResult"></div>
   </div>
 </section>
@@ -231,7 +237,7 @@ $('#photoScanBtn').onclick=async()=>{
   }catch(e){$('#photoResult').innerHTML=`<div class="panel"><b class="red">Recon failed</b><p class="hint">${esc(e.message)}</p></div>`;toast(e.message)}
   finally{$('#photoScanBtn').disabled=false;$('#missionStat').textContent=`${reconSession.length} recon targets`}
 };
-window.clearReconSession=function(){reconSession=[];reconItems=[];$('#photoResult').innerHTML='';$('#photoInput').value='';$('#photoPreview').classList.add('hidden');toast('Recon session cleared')};
+window.clearReconSession=function(){reconSession=[];reconItems=[];reconSelectedFile=null;$('#photoResult').innerHTML='';$('#photoInput').value='';$('#reconCameraInput').value='';$('#photoFileName').textContent='No photo selected';$('#photoPreview').classList.add('hidden');toast('Recon session cleared')};
 window.mergeReconResults=function(items){
   for(const item of items){
     const upc=String(item.upc||'');
@@ -279,10 +285,28 @@ renderResult=function(d,upc,buy){
 };
 
 // Multi-photo Recon session support.
-window.clearReconSession=function(){reconSession=[];reconItems=[];$('#photoResult').innerHTML='';$('#photoInput').value='';$('#photoPreview').classList.add('hidden');toast('Recon session cleared')};
+window.clearReconSession=function(){reconSession=[];reconItems=[];reconSelectedFile=null;$('#photoResult').innerHTML='';$('#photoInput').value='';$('#reconCameraInput').value='';$('#photoFileName').textContent='No photo selected';$('#photoPreview').classList.add('hidden');toast('Recon session cleared')};
 window.mergeReconResults=function(items){for(const item of items){const key=item.upc||item.title.toLowerCase();const idx=reconSession.findIndex(x=>(x.upc&&x.upc===item.upc)||(!x.upc&&x.title.toLowerCase()===item.title.toLowerCase()));if(idx>=0)reconSession[idx]={...reconSession[idx],...item};else reconSession.push(item)}reconSession=reconSession.slice(0,50);reconItems=reconSession;}
+// Recon photo sources: explicit iPhone camera capture OR the device photo album.
+let reconSelectedFile=null;
+function setReconPhoto(file){
+  if(!file) return;
+  reconSelectedFile=file;
+  try{
+    const dt=new DataTransfer(); dt.items.add(file); $('#photoInput').files=dt.files;
+  }catch{}
+  $('#photoFileName').textContent=file.name||'Photo selected';
+  const url=URL.createObjectURL(file);
+  $('#photoPreview').src=url;
+  $('#photoPreview').classList.remove('hidden');
+}
+$('#reconAlbumBtn').onclick=()=>$('#photoInput').click();
+$('#reconCameraBtn').onclick=()=>$('#reconCameraInput').click();
+$('#photoInput').onchange=()=>setReconPhoto($('#photoInput').files?.[0]);
+$('#reconCameraInput').onchange=()=>setReconPhoto($('#reconCameraInput').files?.[0]);
+
 // Replace the v7 photo handler with a session-aware version.
-$('#photoScanBtn').onclick=async()=>{const f=$('#photoInput').files[0];if(!f){toast('Take or choose a photo first');return}$('#photoScanBtn').disabled=true;$('#photoResult').innerHTML=loading('Recon is scanning this photo…');try{const img=new Image();img.src=URL.createObjectURL(f);await img.decode();let codes=await detectBarcodes(img);codes=[...new Map(codes.map(c=>[c.rawValue,c])).values()].slice(0,50);let results=[];if(codes.length){results=await analyzeReconTargets(codes.map(c=>({upc:c.rawValue,condition:$('#condition').value})))}if(codes.length<50){const text=await ocrText(img);const candidates=ocrCandidates(text).filter(q=>!results.some(r=>String(r.input?.upc||'').toLowerCase()===q.toLowerCase()||String(r.result?.product?.title||'').toLowerCase()===q.toLowerCase()));if(candidates.length)results.push(...await analyzeReconTargets(candidates.slice(0,Math.max(0,50-results.length)).map(q=>({title:q,condition:$('#condition').value}))));}
+$('#photoScanBtn').onclick=async()=>{const f=reconSelectedFile||$('#photoInput').files?.[0];if(!f){toast('Take or choose a photo first');return}$('#photoScanBtn').disabled=true;$('#photoResult').innerHTML=loading('Recon is scanning this photo…');try{const img=new Image();img.src=URL.createObjectURL(f);await img.decode();let codes=await detectBarcodes(img);codes=[...new Map(codes.map(c=>[c.rawValue,c])).values()].slice(0,50);let results=[];if(codes.length){results=await analyzeReconTargets(codes.map(c=>({upc:c.rawValue,condition:$('#condition').value})))}if(codes.length<50){const text=await ocrText(img);const candidates=ocrCandidates(text).filter(q=>!results.some(r=>String(r.input?.upc||'').toLowerCase()===q.toLowerCase()||String(r.result?.product?.title||'').toLowerCase()===q.toLowerCase()));if(candidates.length)results.push(...await analyzeReconTargets(candidates.slice(0,Math.max(0,50-results.length)).map(q=>({title:q,condition:$('#condition').value}))));}
 const mapped=results.filter(x=>x.ok&&x.result?.market?.referencePrice>0).map(x=>{const m=x.result.market||{},p=x.result.product||{},input=x.input||{};const suggestedBuy=m.referencePrice?calc(m.referencePrice,1).maxBuy:0;const idConfidence=input.upc?96:Math.max(50,Math.min(89,Number(m.confidenceScore||60)));return{upc:input.upc||'',title:p.title||input.title||'Unknown item',image:m.listings?.[0]?.imageUrl||'',market:m,suggestedBuy,maxBuy:suggestedBuy,confidence:idConfidence,idConfidence,marketConfidence:Number(m.marketConfidence||m.confidenceScore||0),conditionLabel:$('#condition').value==='USED'?'Used':'New / Sealed'};});mergeReconResults(mapped);renderReconSession();}catch(e){$('#photoResult').innerHTML=`<div class="panel"><b class="red">Recon failed</b><p class="hint">${esc(e.message)}</p></div>`;toast(e.message)}finally{$('#photoScanBtn').disabled=false}};
 function renderReconSession(){if(!reconSession.length){$('#photoResult').innerHTML='<div class="panel empty">No targets identified yet.</div>';return}$('#photoResult').innerHTML=`<div class="panel recon-hero"><div class="eyebrow">RECON SESSION</div><h3 style="margin:5px 0">${reconSession.length} unique target${reconSession.length===1?'':'s'} identified</h3><p class="hint">Scan another photo to add more. Up to 50 unique targets are kept in the session.</p><div class="session-bar"><b>${reconSession.length}/50 targets</b><button class="secondary mini" onclick="openCrop()">CROP & RETRY</button><button class="danger mini" onclick="clearReconSession()">CLEAR SESSION</button></div></div><div class="section-title">IDENTIFIED TARGETS // TAP TO ANALYZE</div><div class="scan-results">${reconSession.map(reconCard).join('')}</div>`;$('#missionStat').textContent=`${reconSession.length} recon targets`}
 
@@ -291,7 +315,7 @@ let cropImage=null;
 window.openCrop=function(){const src=$('#photoPreview').src;if(!src){toast('Scan or choose a photo first');return}cropImage=new Image();cropImage.src=src;cropImage.onload=()=>{$('#cropModal').classList.remove('hidden');updateCropPreview()}};
 window.closeCrop=function(){$('#cropModal').classList.add('hidden');cropImage=null};
 window.updateCropPreview=function(){if(!cropImage)return;const c=$('#cropCanvas'),ctx=c.getContext('2d'),x=num($('#cropX').value)/100,y=num($('#cropY').value)/100,w=Math.min(num($('#cropW').value)/100,1-x),h=Math.min(num($('#cropH').value)/100,1-y);const sx=cropImage.naturalWidth*x,sy=cropImage.naturalHeight*y,sw=cropImage.naturalWidth*w,sh=cropImage.naturalHeight*h;c.width=Math.max(1,Math.round(sw));c.height=Math.max(1,Math.round(sh));ctx.drawImage(cropImage,sx,sy,sw,sh,0,0,c.width,c.height)};
-window.analyzeCrop=async function(){if(!cropImage)return;updateCropPreview();const blob=await new Promise(r=>$('#cropCanvas').toBlob(r,'image/jpeg',.92));if(!blob){toast('Could not create crop');return}closeCrop();const f=new File([blob],'recon-crop.jpg',{type:'image/jpeg'});const dt=new DataTransfer();dt.items.add(f);$('#photoInput').files=dt.files;await $('#photoScanBtn').onclick()};
+window.analyzeCrop=async function(){if(!cropImage)return;updateCropPreview();const blob=await new Promise(r=>$('#cropCanvas').toBlob(r,'image/jpeg',.92));if(!blob){toast('Could not create crop');return}closeCrop();const f=new File([blob],'recon-crop.jpg',{type:'image/jpeg'});setReconPhoto(f);await $('#photoScanBtn').onclick()};
 
 $('#scanBtn').onclick=async()=>{if(!navigator.mediaDevices?.getUserMedia||!('BarcodeDetector' in window)){toast('Live scanning is unavailable here. Use Recon or enter the UPC.');return}try{scannerStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});$('#scannerVideo').srcObject=scannerStream;$('#scannerModal').classList.remove('hidden');scannerLive=true;const detector=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']});while(scannerLive){try{const found=await detector.detect($('#scannerVideo'));if(found[0]){$('#upc').value=found[0].rawValue;closeScanner();toast('Target barcode acquired');break}}catch(e){}await new Promise(r=>setTimeout(r,160))}}catch(e){toast('Camera permission was not available')}};
 function closeScanner(){scannerLive=false;if(scannerStream){scannerStream.getTracks().forEach(t=>t.stop());scannerStream=null}$('#scannerVideo').srcObject=null;$('#scannerModal').classList.add('hidden')}$('#closeScanner').onclick=closeScanner;
